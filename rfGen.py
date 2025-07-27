@@ -4,6 +4,9 @@ import matplotlib.pyplot as plt
 
 def plotWaves(points,waves):
     plt.plot(points,waves)
+    plt.title("Simulated RF Signal")
+    plt.xlabel("Radians")
+    plt.ylabel("Amplitude")
     positions = [0, np.pi/2, np.pi, 3*np.pi/2, 2*np.pi]
     labels = ["0", r"$\frac{\pi}{2}$", r"$\pi$", r"$\frac{3\pi}{2}$", r"$2\pi$"]
     plt.xticks(positions, labels)
