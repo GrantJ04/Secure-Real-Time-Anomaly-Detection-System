@@ -6,12 +6,13 @@ import flask
 import matplotlib.pyplot as plt
 from Crypto.Cipher import AES
 
-def set(freqs, fftSignal): #finds/sets specific values from our raw FFT signal for later use
+def setVals(freqs, fftSignal): #finds/sets specific values from our raw FFT signal for later use
     peak = findPeak(fftSignal)
     centroid = findCentroid(freqs, fftSignal)
     bandwidth = findBandwidth(freqs, fftSignal, centroid)
     flatness = findFlatness(fftSignal)
     rolloff = findRolloff(freqs, fftSignal, .85)
+    return peak, centroid, bandwidth, flatness, rolloff
     
 def findPeak(signal): #finds peak frequency
     return signal[np.argmax(signal)]
@@ -40,19 +41,17 @@ def findBandwidth(freqs, signal, centroid): #finds bandwidth
         return 0
     
 def findFlatness(signal):
-    product = 1
-    sSig= 0
-    n = 0
-    for k in signal:
-        product *= k
-        sSig += k
-        n += 1
-    top = np.power(product, 1 / n) #numerator
-    bottom = (1/n) * sSig
-    if bottom > 0:
-        return top/bottom
-    else:
-        return 0
+    signal = np.array(signal)
+    signal = signal[signal > 0]  # avoid log(0) and negatives
+
+    if len(signal) == 0:
+        return 0  # fallback if all bins were zero or negative
+
+    log_geom_mean = np.exp(np.mean(np.log(signal)))  # geometric mean
+    arith_mean = np.mean(signal)  # arithmetic mean
+
+    return log_geom_mean / arith_mean if arith_mean > 0 else 0
+
         
 def findRolloff(freqs, signal, percThresh):
     tEnergy = 0
