@@ -1,136 +1,97 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import setValsForUse
-
-def plotWaves(points, waves):
-    plt.plot(points, waves)
-    plt.title("Simulated RF Signal")
-    plt.xlabel("Time (sec)")
-    plt.ylabel("Amplitude")
-    plt.show()
 
 def simRFwithPAnomalies(
-    nSignals,
-    anomaly_rate=0.02,       # probability of anomaly event per sample
-    burst=True,              # whether to allow bursts
-    burst_len_range=(8, 25), # burst length in samples
-    freq_anomaly_prob=0.005, # chance of frequency anomaly
-    sample_rate=1000         # samples per second
+    nSignals=50,
+    anomaly_rate=0.02,
+    burst_len_range=(10,40),
+    freq_anomaly_prob=0.005,
+    nPoints=1000,
+    debug=False
 ):
     """
-    Simulates an RF signal with optional spike bursts and frequency anomalies.
+    Simulate RF signals with anomalies.
+
     Returns:
-        times (array)         - time points in seconds
-        spikedWaves (array)   - simulated RF amplitudes
-        anomalyFlags (array)  - True if the point is anomalous
+    - times: list of time arrays
+    - waves: list of wave arrays
+    - flags: list of boolean arrays indicating anomalies
     """
+    times = []
+    waves = []
+    flags = []
 
-    # Simulate 2π seconds worth of data at given resolution
-    points = np.arange(0, 2 * np.pi, 0.01)
-    times = np.arange(len(points)) / sample_rate
+    for _ in range(nSignals):
+        t = np.linspace(0, 2*np.pi, nPoints)
+        base_wave = np.sin(t)
+        anomaly_flag = np.zeros_like(base_wave, dtype=int)
 
-    # Random base waveform parameters
-    randWF = [np.random.uniform(0.1, 4) for _ in range(nSignals)]   # frequencies
-    randAMP = [np.random.uniform(0.5, 2) for _ in range(nSignals)]  # amplitudes
-    randPHS = [np.random.uniform(0, 2 * np.pi) for _ in range(nSignals)] # phases
+        i = 0
+        while i < nPoints:
+            if np.random.rand() < anomaly_rate:
+                burst_len = np.random.randint(burst_len_range[0], burst_len_range[1])
+                end_idx = min(i + burst_len, nPoints)
+                base_wave[i:end_idx] += np.random.uniform(0.5, 1.5, end_idx-i)
+                anomaly_flag[i:end_idx] = 1
+                i = end_idx
+            else:
+                i += 1
+        
+        # Ensure at least a few normal samples for small nSignals
+        if debug and np.sum(anomaly_flag==0) < nPoints*0.2:
+            normal_indices = np.random.choice(nPoints, size=int(nPoints*0.2), replace=False)
+            anomaly_flag[normal_indices] = 0
+        
+        times.append(t)
+        waves.append(base_wave)
+        flags.append(anomaly_flag)
 
-    # State variables
-    spikedWaves = []
-    anomalyFlags = []
-    driftACC = [0] * nSignals
-    in_burst = 0  # counts down burst samples
+    return times, waves, flags
 
-    for idx, point in enumerate(points):
-        noise = np.random.normal(-0.07, 0.07)
-        signal = 0
-        isAnom = False
 
-        # Small drift in frequency for realism
-        for drift in range(nSignals):
-            driftACC[drift] += np.random.uniform(-0.001, 0.001)
+def sigToFeatAndLabels(
+    waves, 
+    flags, 
+    sample_rate, 
+    window_size=128, 
+    anomaly_ratio_threshold=0.1
+):
+    """
+    Convert signals into windowed features and labels.
+    Returns:
+    - peaks, centroids, bandwidths, flatness, rolloffs, labels
+    """
+    allPeaks, allCentroids, allBandwidths, allFlatnesses, allRolloffs, allLabels = [], [], [], [], [], []
 
-        # Check if in an anomaly burst
-        if in_burst > 0:
-            spike = np.random.uniform(0.5, 1.0)
-            if np.random.rand() < 0.5:
-                spike = -spike
-            signal += spike
-            isAnom = True
-            in_burst -= 1
+    for wave, flag in zip(waves, flags):
+        nWindows = len(wave) // window_size
+        for i in range(nWindows):
+            start = i*window_size
+            end = start+window_size
+            w = wave[start:end]
+            f = flag[start:end]
 
-        # Randomly trigger a burst
-        elif burst and np.random.rand() < anomaly_rate:
-            in_burst = np.random.randint(burst_len_range[0], burst_len_range[1])
+            # Features
+            peak = np.max(np.abs(w))
+            centroid = np.sum(np.arange(window_size)*np.abs(w))/np.sum(np.abs(w))
+            bandwidth = np.std(w)
+            flatness = np.exp(np.mean(np.log(np.abs(w)+1e-8))) / (np.mean(np.abs(w))+1e-8)
+            rolloff = np.percentile(np.abs(w), 85)
 
-        # Frequency anomaly (sudden frequency jump)
-        if np.random.rand() < freq_anomaly_prob:
-            target = np.random.randint(0, nSignals)
-            randWF[target] += np.random.uniform(-1.5, 1.5)
-            isAnom = True
+            allPeaks.append(peak)
+            allCentroids.append(centroid)
+            allBandwidths.append(bandwidth)
+            allFlatnesses.append(flatness)
+            allRolloffs.append(rolloff)
 
-        # Build the composite waveform
-        for wave in range(nSignals):
-            signal += randAMP[wave] * np.sin(
-                (driftACC[wave] + randWF[wave]) * point + randPHS[wave]
-            )
-
-        signal += noise
-        spikedWaves.append(signal)
-        anomalyFlags.append(isAnom)
-
-    return times, np.array(spikedWaves), np.array(anomalyFlags)
-
-def sigToFeatAndLabels(signal, anomFlags, sampleRate, windowSize, anomaly_ratio_threshold=0.05):
-    nWindows = len(signal) // windowSize
-    peaks, centroids, bandwidths, flatnesses, rolloffs = [], [], [], [], []
-    labels = []
-
-    for k in range(nWindows):
-        startP = k * windowSize
-        endP = startP + windowSize
-        window = signal[startP:endP]
-        windowFlags = anomFlags[startP:endP]
-
-        fftVals = np.abs(np.fft.rfft(window))
-        freqs = np.fft.rfftfreq(len(window), d=1/sampleRate)
-
-        peak, centroid, bandwidth, flatness, rolloff = setValsForUse.setVals(freqs, fftVals)
-
-        peaks.append(peak)
-        centroids.append(centroid)
-        bandwidths.append(bandwidth)
-        flatnesses.append(flatness)
-        rolloffs.append(rolloff)
-
-        # Label window as anomalous if fraction of flagged points exceeds threshold
-        anomaly_ratio = np.mean(windowFlags)
-        labels.append(int(anomaly_ratio > anomaly_ratio_threshold))
+            # Label
+            anomaly_ratio = np.sum(f)/window_size
+            allLabels.append(int(anomaly_ratio > anomaly_ratio_threshold))
 
     return (
-        np.array(peaks),
-        np.array(centroids),
-        np.array(bandwidths),
-        np.array(flatnesses),
-        np.array(rolloffs),
-        np.array(labels),
+        np.array(allPeaks),
+        np.array(allCentroids),
+        np.array(allBandwidths),
+        np.array(allFlatnesses),
+        np.array(allRolloffs),
+        np.array(allLabels)
     )
-
-        
-# Example usage
-if __name__ == "__main__":
-    times, waves, flags = simRFwithPAnomalies(
-        nSignals=3,
-        anomaly_rate=0.005,
-        burst=True,
-        freq_anomaly_prob=0.002
-    )
-
-    plotWaves(times, waves)
-
-    # Optional: visualize anomalies in red
-    import matplotlib.pyplot as plt
-    plt.figure()
-    plt.plot(times, waves, label="RF Signal")
-    plt.scatter(times[flags], waves[flags], color='red', label="Anomalies")
-    plt.legend()
-    plt.show()
