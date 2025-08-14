@@ -11,10 +11,10 @@ def plotWaves(points, waves):
 
 def simRFwithPAnomalies(
     nSignals,
-    anomaly_rate=0.01,       # probability of anomaly event per sample
+    anomaly_rate=0.02,       # probability of anomaly event per sample
     burst=True,              # whether to allow bursts
-    burst_len_range=(5, 30), # burst length in samples
-    freq_anomaly_prob=0.001, # chance of frequency anomaly
+    burst_len_range=(8, 25), # burst length in samples
+    freq_anomaly_prob=0.005, # chance of frequency anomaly
     sample_rate=1000         # samples per second
 ):
     """
@@ -51,7 +51,7 @@ def simRFwithPAnomalies(
 
         # Check if in an anomaly burst
         if in_burst > 0:
-            spike = np.random.uniform(0.3, 0.8)
+            spike = np.random.uniform(0.5, 1.0)
             if np.random.rand() < 0.5:
                 spike = -spike
             signal += spike
@@ -80,7 +80,7 @@ def simRFwithPAnomalies(
 
     return times, np.array(spikedWaves), np.array(anomalyFlags)
 
-def sigToFeatAndLabels(signal, anomFlags, sampleRate, windowSize, anomaly_ratio_threshold=0.3):
+def sigToFeatAndLabels(signal, anomFlags, sampleRate, windowSize, anomaly_ratio_threshold=0.05):
     nWindows = len(signal) // windowSize
     peaks, centroids, bandwidths, flatnesses, rolloffs = [], [], [], [], []
     labels = []

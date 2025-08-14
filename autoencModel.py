@@ -1,53 +1,76 @@
 import numpy as np
-import pandas as pd
 import tensorflow as tf
-from tensorflow.keras import layers, models, optimizers
-import matplotlib.pyplot as plt
+from tensorflow.keras import layers
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import precision_score, recall_score
 from sklearn.preprocessing import StandardScaler
-def createModel(peak, centroid, bandwidth, flatness, rolloff): #creates autoencoder model using given parameters
+from sklearn.metrics import precision_recall_curve, f1_score
 
-    x = np.column_stack((peak, centroid, bandwidth, flatness, rolloff)) #forms a matrix
-    #each row is one signal sample, each col is a different feature
-
+def createModel(peak, centroid, bandwidth, flatness, rolloff, labels=None, bottleneck_size=3):
+    """
+    Creates an autoencoder for anomaly detection.
+    
+    Parameters:
+    - peak, centroid, bandwidth, flatness, rolloff: feature arrays
+    - labels: array of 0 (normal) / 1 (anomaly), optional (used for F1-optimal threshold)
+    - bottleneck_size: integer size of bottleneck layer
+    """
+    
+    # Stack features into matrix
+    X = np.column_stack((peak, centroid, bandwidth, flatness, rolloff))
+    
+    # Only use normal samples for training
+    if labels is not None:
+        normal_mask = (labels == 0)
+        X_normal = X[normal_mask]
+    else:
+        X_normal = X
+    
+    # Scale
     scaler = StandardScaler()
-    xScaled = scaler.fit_transform(x) #normalizes matrix for use in training
-
-    #split into training and validation sets
-    xTrain , xVal = train_test_split(xScaled, test_size = 0.2, random_state = 42) 
-
-    #define autoencoder model
-
-    stackModel = tf.keras.Sequential()
-
-    stackModel.add(layers.Dense(3, activation = 'relu', input_shape=(5,))) #encoder
-    stackModel.add(layers.Dense(2, activation = 'relu')) #bottleneck
-    stackModel.add(layers.Dense(3, activation = 'relu')) #decoder
-    stackModel.add(layers.Dense(5, activation = 'linear')) #output layer reconstruction
+    X_normal_scaled = scaler.fit_transform(X_normal)
     
-    stackModel.compile(optimizer = 'adam', loss = 'mse')
-
-    hist = stackModel.fit(xTrain, xTrain, validation_data = (xVal, xVal), epochs = 50, batch_size = 32)
-
-    xValRec = stackModel.predict(xVal) #use trained model to predict each sample
-
-    recErrors = np.mean(np.square(xVal - xValRec), axis = 1) #completes MSE
-
-    threshold = np.percentile(recErrors, 95) #threshold on error distribution
-
-    return stackModel, scaler, threshold
-
-def detectAnomalies(newPeak, newCentroid, newBandwidth, newFlatness, newRolloff, stackModel, scaler, threshold): #detects anomalies on new data
-
-    newData = np.column_stack((newPeak, newCentroid, newBandwidth, newFlatness, newRolloff))
-
-    newScaled = scaler.transform(newData)
-
-    reconstd = stackModel.predict(newScaled)
-
-    recErrors = np.mean(np.square(newScaled - reconstd), axis = 1)
-
-    anomalies = recErrors > threshold
+    # Train/validation split (normal data only)
+    X_train, X_val = train_test_split(X_normal_scaled, test_size=0.2, random_state=42)
     
-    return anomalies, recErrors
+    # Build autoencoder
+    model = tf.keras.Sequential([
+        layers.Dense(4, activation='relu', input_shape=(5,)),  # encoder
+        layers.Dense(bottleneck_size, activation='relu'),      # bottleneck
+        layers.Dense(4, activation='relu'),                    # decoder
+        layers.Dense(5, activation='linear')                   # reconstruction
+    ])
+    
+    model.compile(optimizer='adam', loss='mse')
+    model.fit(X_train, X_train, validation_data=(X_val, X_val), epochs=50, batch_size=32, verbose=1)
+    
+    # Compute reconstruction error on validation set
+    X_val_pred = model.predict(X_val)
+    val_errors = np.mean(np.square(X_val - X_val_pred), axis=1)
+    
+    # Choose threshold
+    if labels is None:
+        threshold = np.percentile(val_errors, 95)
+    else:
+        # Use F1-optimal threshold if labels provided
+        val_labels = labels[normal_mask][len(X_train):]  # align val labels
+        prec, rec, thresh = precision_recall_curve(val_labels, val_errors)
+        f1_scores = 2 * (prec * rec) / (prec + rec + 1e-8)
+        best_idx = np.argmax(f1_scores)
+        threshold = thresh[best_idx]
+        print(f"Best threshold by F1: {threshold:.4f} (F1={f1_scores[best_idx]:.4f})")
+    
+    return model, scaler, threshold
+
+
+def detectAnomalies(newPeak, newCentroid, newBandwidth, newFlatness, newRolloff, model, scaler, threshold):
+    """
+    Detects anomalies using trained autoencoder model.
+    """
+    new_data = np.column_stack((newPeak, newCentroid, newBandwidth, newFlatness, newRolloff))
+    new_scaled = scaler.transform(new_data)
+    
+    reconstructed = model.predict(new_scaled)
+    rec_errors = np.mean(np.square(new_scaled - reconstructed), axis=1)
+    
+    anomalies = rec_errors > threshold
+    return anomalies, rec_errors

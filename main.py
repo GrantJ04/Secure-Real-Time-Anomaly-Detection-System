@@ -56,6 +56,10 @@ def main():
         scaler,
         threshold
     )
+    visualizeResults.plotRecErrorDist(recErrors, threshold)
+    visualizeResults.plotErrorOverTime(recErrors, allLabels, anomalies, threshold)
+    visualizeResults.plotConfusionMatrix(allLabels, anomalies)
+    visualizeResults.plotPrecisionRecallCurve(allLabels, recErrors)
 
     #print results to user
     for k, isAnom in enumerate(anomalies):
