@@ -4,6 +4,14 @@ import autoencModel
 import visualizeResults as viz
 from sklearn.model_selection import train_test_split
 from autoencModel import choose_threshold_by_f1
+from Crypto.Random import get_random_bytes
+from cryptoUtils import decryptData, encryptData
+import json
+
+# ------------------------------
+# 0) Generate AES key
+# ------------------------------
+aesKey = get_random_bytes(16)
 
 # ------------------------------
 # 1) Generate synthetic RF data
@@ -24,6 +32,32 @@ sample_rate = 1000
 allPeaks, allCentroids, allBandwidths, allFlatnesses, allRolloffs, allLabels = rfGen.sigToFeatAndLabels(
     waves, flags, sample_rate, window_size, anomaly_ratio_threshold=0.1
 )
+
+# ------------------------------
+# 2a) Secure features: encrypt
+# ------------------------------
+featureData = {
+    "peaks": allPeaks.tolist(),
+    "centroids": allCentroids.tolist(),
+    "bandwidths": allBandwidths.tolist(),
+    "flatnesses": allFlatnesses.tolist(),
+    "rolloffs": allRolloffs.tolist(),
+    "labels": allLabels.tolist()
+}
+featureStr = json.dumps(featureData)
+encryptedFeats = encryptData(featureStr, aesKey)
+
+# ------------------------------
+# 2b) Decrypt before using in model
+# ------------------------------
+decryptedFeats = decryptData(encryptedFeats, aesKey)
+decryptedData = json.loads(decryptedFeats)
+allPeaks = np.array(decryptedData["peaks"])
+allCentroids = np.array(decryptedData["centroids"])
+allBandwidths = np.array(decryptedData["bandwidths"])
+allFlatnesses = np.array(decryptedData["flatnesses"])
+allRolloffs = np.array(decryptedData["rolloffs"])
+allLabels = np.array(decryptedData["labels"])
 
 # Print dataset stats
 print(f"Total windows: {len(allLabels)}")
@@ -79,7 +113,7 @@ print(f"Chosen threshold: {threshold:.6f}")
 # ------------------------------
 # 7) Apply threshold to all data
 # ------------------------------
-pred_all, recErrors = autoencModel.detectAnomalies(
+predAll, recErrors = autoencModel.detectAnomalies(
     allPeaks,
     allCentroids,
     allBandwidths,
@@ -91,24 +125,38 @@ pred_all, recErrors = autoencModel.detectAnomalies(
 )
 
 # ------------------------------
+# 7a) Optionally secure predictions
+# ------------------------------
+predData = {
+    "predLabels": predAll.astype(int).tolist(),
+    "recErrors": recErrors.tolist()
+}
+predStr = json.dumps(predData)
+encryptedPreds = encryptData(predStr, aesKey)
+
+# Decrypt before visualization
+decryptedPreds = json.loads(decryptData(encryptedPreds, aesKey))
+predLabels = np.array(decryptedPreds["predLabels"])
+recErrors = np.array(decryptedPreds["recErrors"])
+
+# ------------------------------
 # 8) Print classification summary
 # ------------------------------
 from sklearn.metrics import classification_report, confusion_matrix, precision_score, recall_score, f1_score
-pred_labels = pred_all.astype(int)
-cm = confusion_matrix(allLabels, pred_labels)
+cm = confusion_matrix(allLabels, predLabels)
 print("\n=== Confusion Matrix ===")
 print(cm)
 print("TN =", cm[0,0], "FP =", cm[0,1], "FN =", cm[1,0], "TP =", cm[1,1])
 print("\n=== Classification Report ===")
-print(classification_report(allLabels, pred_labels, target_names=["Normal","Anomaly"]))
-print("Precision:", precision_score(allLabels, pred_labels, zero_division=0))
-print("Recall:", recall_score(allLabels, pred_labels, zero_division=0))
-print("F1 Score:", f1_score(allLabels, pred_labels, zero_division=0))
+print(classification_report(allLabels, predLabels, target_names=["Normal","Anomaly"]))
+print("Precision:", precision_score(allLabels, predLabels, zero_division=0))
+print("Recall:", recall_score(allLabels, predLabels, zero_division=0))
+print("F1 Score:", f1_score(allLabels, predLabels, zero_division=0))
 
 # ------------------------------
 # 9) Visualize
 # ------------------------------
 viz.plotRecErrorDist(recErrors, threshold)
-viz.plotErrorOverTime(recErrors, allLabels, pred_all, threshold)
-viz.plotConfusionMatrix(allLabels, pred_all)
+viz.plotErrorOverTime(recErrors, allLabels, predAll, threshold)
+viz.plotConfusionMatrix(allLabels, predAll)
 viz.plotPrecisionRecallCurve(allLabels, recErrors)

@@ -1,10 +1,7 @@
 import numpy as np
 import pandas as pd
-import sklearn
-import plotly
-import flask
 import matplotlib.pyplot as plt
-from Crypto.Cipher import AES
+
 
 def setVals(freqs, fftSignal): #finds/sets specific values from our raw FFT signal for later use
     peak = findPeak(fftSignal)
