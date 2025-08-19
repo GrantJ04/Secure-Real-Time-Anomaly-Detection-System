@@ -1,38 +1,52 @@
 import dash
 from dash import dcc, html
-import dash_bootstrap_components as dbc
+from dash.dependencies import Input, Output
 import visualizeResults as viz
+import pandas as pd
 
-def db(recErrors, threshold, allLabels, predAll, scores):
-    # Use a Bootstrap theme for a modern look
-    app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
+def db(recErrors, threshold, allLabels, predAll, recErrors_rf, finance_pred_file="finance_preds.csv"):
+
+    # Load financial predictions
+    df_fin = pd.read_csv(finance_pred_file)
+    y_fin = df_fin['y_true'].values
+    y_pred_fin = df_fin['y_pred'].values
+
+    app = dash.Dash(__name__)
     app.title = "Secure Anomaly Detection Dashboard"
 
-    # Layout
-    app.layout = dbc.Container([
-        # Header
-        dbc.Row([
-            dbc.Col(html.H1("Secure Anomaly Detection Dashboard",
-                            style={'textAlign': 'center', 'marginBottom': '20px'}))
+    # Apply dark theme for Plotly and basic CSS
+    app.layout = html.Div([
+        html.H1("Secure Anomaly Detection Dashboard", style={
+            'textAlign': 'center', 'color': 'white', 'marginBottom': '30px'}),
+        dcc.Tabs(id="tabs", value='tab-rf', children=[
+            dcc.Tab(label='RF Anomaly Detection', value='tab-rf', style={'color': 'black'}, selected_style={'color': 'white'}),
+            dcc.Tab(label='Financial Fraud Detection', value='tab-finance', style={'color': 'black'}, selected_style={'color': 'white'})
         ]),
+        html.Div(id='page-content', style={'padding': '20px'})
+    ], style={'backgroundColor': '#111111', 'font-family': 'Arial, sans-serif'})
 
-        # First row of graphs
-        dbc.Row([
-            dbc.Col(dbc.Card(dcc.Graph(figure=viz.plotRecErrorDist(recErrors, threshold)),
-                             body=True, style={'marginBottom': '20px'}), width=6),
-            dbc.Col(dbc.Card(dcc.Graph(figure=viz.plotErrorOverTime(recErrors, allLabels, predAll, threshold)),
-                             body=True, style={'marginBottom': '20px'}), width=6),
-        ]),
-
-        # Second row of graphs
-        dbc.Row([
-            dbc.Col(dbc.Card(dcc.Graph(figure=viz.plotConfusionMatrix(allLabels, predAll)),
-                             body=True, style={'marginBottom': '20px'}), width=6),
-            dbc.Col(dbc.Card(dcc.Graph(figure=viz.plotPrecisionRecallCurve(allLabels, scores)),
-                             body=True, style={'marginBottom': '20px'}), width=6),
-        ]),
-
-    ], fluid=True, style={'padding': '20px', 'backgroundColor': '#1e1e1e', 'fontFamily': 'Arial'})
+    @app.callback(
+        Output('page-content', 'children'),
+        [Input('tabs', 'value')]
+    )
+    def render_tab(tab):
+        if tab == 'tab-rf':
+            return html.Div([
+                dcc.Graph(figure=viz.plotRecErrorDist(recErrors, threshold).update_layout(template='plotly_dark')),
+                dcc.Graph(figure=viz.plotErrorOverTime(recErrors, allLabels, predAll, threshold).update_layout(template='plotly_dark')),
+                dcc.Graph(figure=viz.plotConfusionMatrix(allLabels, predAll).update_layout(template='plotly_dark')),
+                dcc.Graph(figure=viz.plotPrecisionRecallCurve(allLabels, recErrors_rf).update_layout(template='plotly_dark'))
+            ])
+        elif tab == 'tab-finance':
+            return html.Div([
+                dcc.Graph(figure=viz.plotFinancialCounts(y_fin, y_pred_fin).update_layout(
+                    template='plotly_dark',
+                    title='Fraud Counts per Bucket',
+                    xaxis_title='Data Bucket',
+                    yaxis_title='Number of Fraud Cases',
+                    font=dict(color='white')
+                ))
+            ])
 
     print("Dash app running on http://127.0.0.1:8050")
     app.run(debug=True, host="127.0.0.1", port=8050, use_reloader=False)

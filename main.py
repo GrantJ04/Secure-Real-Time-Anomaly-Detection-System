@@ -7,7 +7,10 @@ from sklearn.model_selection import train_test_split
 from autoencModel import choose_threshold_by_f1
 from Crypto.Random import get_random_bytes
 from cryptoUtils import decryptData, encryptData
-
+import pandas as pd
+import joblib
+import kaggle  # your financial model file
+import os
 import json
 
 # ------------------------------
@@ -21,9 +24,9 @@ aesKey = get_random_bytes(16)
 nSignals = 50
 times, waves, flags = rfGen.simRFwithPAnomalies(
     nSignals=nSignals,
-    anomaly_rate=0.02,          # 2% per sample
+    anomaly_rate=0.02,
     burst_len_range=(20, 40),
-    freq_anomaly_prob=0.005     # frequency anomalies
+    freq_anomaly_prob=0.005
 )
 
 # ------------------------------
@@ -61,12 +64,6 @@ allFlatnesses = np.array(decryptedData["flatnesses"])
 allRolloffs = np.array(decryptedData["rolloffs"])
 allLabels = np.array(decryptedData["labels"])
 
-# Print dataset stats
-print(f"Total windows: {len(allLabels)}")
-print(f"Normal windows: {np.sum(allLabels == 0)}")
-print(f"Anomalous windows: {np.sum(allLabels == 1)}")
-print("Label counts:", dict(zip(*np.unique(allLabels, return_counts=True))))
-
 # ------------------------------
 # 3) Split into train/val sets (normal only for AE)
 # ------------------------------
@@ -74,11 +71,8 @@ idx = np.arange(len(allLabels))
 train_idx, val_idx = train_test_split(
     idx, test_size=0.25, random_state=42, stratify=allLabels
 )
-
 train_norm_mask = (allLabels[train_idx] == 0)
 train_norm_idx = train_idx[train_norm_mask]
-if len(train_norm_idx) < 2:
-    raise ValueError("Too few normal windows. Increase nSignals or lower anomaly threshold.")
 
 # ------------------------------
 # 4) Train autoencoder
@@ -110,7 +104,6 @@ val_labels = allLabels[val_idx]
 # 6) Tune threshold using F1
 # ------------------------------
 threshold = choose_threshold_by_f1(val_errors, val_labels)
-print(f"Chosen threshold: {threshold:.6f}")
 
 # ------------------------------
 # 7) Apply threshold to all data
@@ -127,7 +120,7 @@ predAll, recErrors = autoencModel.detectAnomalies(
 )
 
 # ------------------------------
-# 7a) Optionally secure predictions
+# 7a) Secure predictions
 # ------------------------------
 predData = {
     "predLabels": predAll.astype(int).tolist(),
@@ -135,28 +128,36 @@ predData = {
 }
 predStr = json.dumps(predData)
 encryptedPreds = encryptData(predStr, aesKey)
-
-# Decrypt before visualization
 decryptedPreds = json.loads(decryptData(encryptedPreds, aesKey))
 predLabels = np.array(decryptedPreds["predLabels"])
 recErrors = np.array(decryptedPreds["recErrors"])
 
 # ------------------------------
-# 8) Print classification summary
+# 8) Financial model: train/load and prepare data
 # ------------------------------
-from sklearn.metrics import classification_report, confusion_matrix, precision_score, recall_score, f1_score
-cm = confusion_matrix(allLabels, predLabels)
-print("\n=== Confusion Matrix ===")
-print(cm)
-print("TN =", cm[0,0], "FP =", cm[0,1], "FN =", cm[1,0], "TP =", cm[1,1])
-print("\n=== Classification Report ===")
-print(classification_report(allLabels, predLabels, target_names=["Normal","Anomaly"]))
-print("Precision:", precision_score(allLabels, predLabels, zero_division=0))
-print("Recall:", recall_score(allLabels, predLabels, zero_division=0))
-print("F1 Score:", f1_score(allLabels, predLabels, zero_division=0))
+# Only train if missing
+if not os.path.exists("fraud_model.pkl") or not os.path.exists("scaler.pkl"):
+    kaggle.trainSave()
+
+scaler_fin = joblib.load("scaler.pkl")
+model_fin = joblib.load("fraud_model.pkl")
+
+# Precompute predictions if missing
+if os.path.exists("finance_preds.csv"):
+    df_fin = pd.read_csv("finance_preds.csv")
+    y_fin = df_fin['y_true'].values
+    y_pred_fin = df_fin['y_pred'].values
+else:
+    finance_data = pd.read_csv("creditcard.csv")
+    x_fin = finance_data.drop("Class", axis=1)
+    y_fin = finance_data["Class"].values
+
+    x_scaled = scaler_fin.transform(x_fin)
+    y_pred_fin = model_fin.predict(x_scaled)
+
+    pd.DataFrame({'y_true': y_fin, 'y_pred': y_pred_fin}).to_csv("finance_preds.csv", index=False)
 
 # ------------------------------
-# 9) Visualize using Dash
+# 9) Launch dashboard
 # ------------------------------
-db.db(recErrors, threshold, allLabels, predAll, recErrors)
-
+db.db(recErrors, threshold, allLabels, predAll, recErrors, finance_pred_file="finance_preds.csv")
