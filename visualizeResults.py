@@ -1,51 +1,109 @@
-import seaborn as sns
+# viz.py
+import plotly.graph_objects as go
+import plotly.figure_factory as ff
+from sklearn.metrics import confusion_matrix, precision_recall_curve
 import numpy as np
-import sklearn.metrics as skm
-import matplotlib.pyplot as plt
 
 def plotRecErrorDist(errors, threshold):
-    sns.kdeplot(errors)
-    plt.axvline(threshold, color = 'r', linestyle = '--')
-    plt.xlabel("Reconstruction Error")
-    plt.ylabel("Density")
-    plt.title("Reconstruction Error Distribution with Threshold")
-    plt.show()
+    """
+    Plot reconstruction error distribution as a simple line plot with threshold.
+    """
+    errors = np.array(errors)
+    sorted_errors = np.sort(errors)
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=np.arange(len(sorted_errors)),
+        y=sorted_errors,
+        mode='lines',
+        name='Reconstruction Error',
+        line=dict(color='blue')
+    ))
+    
+    # Add threshold line
+    fig.add_hline(y=threshold, line=dict(color='red', dash='dash'), annotation_text='Threshold')
+    
+    fig.update_layout(
+        title="Reconstruction Error Distribution with Threshold",
+        xaxis_title="Index (sorted errors)",
+        yaxis_title="Reconstruction Error"
+    )
+    
+    return fig
 
 def plotErrorOverTime(errors, trueLabels, predictedLabels, threshold):
-    inds = np.arange(len(errors))
-
-    plt.figure(figsize = (10,6))
-    sns.lineplot(x=inds, y=errors, label = 'Reconstruction Error')
-    plt.axhline(y=threshold, color='r', linestyle = '--', label = 'Threshold')
-
-    anomInds = inds[predictedLabels == 1]
-    anomErrors = errors[predictedLabels == 1]
-    sns.scatterplot(x=anomInds, y=anomErrors, color = 'red', label = 'Predicted Anomaly', s=50)
-
-    plt.xlabel("Window Index")
-    plt.ylabel("Reconstruction Error")
-    plt.title("Reconstruction Error Over Time with Anomalies")
-    plt.legend()
-    plt.show()
+    """
+    Plot reconstruction error over time with predicted anomalies highlighted.
+    """
+    inds = list(range(len(errors)))
+    fig = go.Figure()
+    
+    # Error line
+    fig.add_trace(go.Scatter(
+        x=inds,
+        y=errors,
+        mode='lines',
+        name='Reconstruction Error'
+    ))
+    
+    # Threshold line
+    fig.add_hline(y=threshold, line=dict(color='red', dash='dash'), annotation_text='Threshold')
+    
+    # Predicted anomalies
+    anomInds = [i for i, p in enumerate(predictedLabels) if p == 1]
+    anomErrors = [errors[i] for i in anomInds]
+    fig.add_trace(go.Scatter(
+        x=anomInds,
+        y=anomErrors,
+        mode='markers',
+        marker=dict(color='red', size=10),
+        name='Predicted Anomaly'
+    ))
+    
+    fig.update_layout(
+        title="Reconstruction Error Over Time with Anomalies",
+        xaxis_title="Window Index",
+        yaxis_title="Reconstruction Error"
+    )
+    return fig
 
 def plotConfusionMatrix(trueLabels, predictedLabels):
-    confMatrix = skm.confusion_matrix(trueLabels, predictedLabels)
-    plt.figure(figsize = (6,5))
-    sns.heatmap(confMatrix, annot = True, fmt = 'd', cmap = 'Blues', cbar = False)
-    plt.xlabel('Predicted Label')
-    plt.ylabel('True Label')
-    plt.title('Confusion Matrix')
-    plt.xticks(ticks = [0.5,1.5], labels = ['Normal', 'Anomaly'])
-    plt.yticks(ticks = [0.5,1.5], labels = ['Normal', 'Anomaly'], rotation = 0)
-    plt.show()
+    """
+    Plot confusion matrix as annotated heatmap.
+    """
+    confMatrix = confusion_matrix(trueLabels, predictedLabels)
+    fig = ff.create_annotated_heatmap(
+        z=confMatrix,
+        x=['Normal', 'Anomaly'],
+        y=['Normal', 'Anomaly'],
+        colorscale='Blues',
+        showscale=True
+    )
+    fig.update_layout(
+        title="Confusion Matrix",
+        xaxis_title="Predicted Label",
+        yaxis_title="True Label"
+    )
+    return fig
 
 def plotPrecisionRecallCurve(trueLabels, scores):
-    precision, recall, _ = skm.precision_recall_curve(trueLabels, scores)
-    plt.figure(figsize=(7,5))
-    plt.plot(recall, precision, marker='.', label='Precision-Recall Curve')
-    plt.xlabel('Recall')
-    plt.ylabel('Precision')
-    plt.title('Precision-Recall Curve')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+    """
+    Plot precision-recall curve.
+    """
+    precision, recall, _ = precision_recall_curve(trueLabels, scores)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=recall,
+        y=precision,
+        mode='lines+markers',
+        name='Precision-Recall Curve',
+        line=dict(color='blue')
+    ))
+    fig.update_layout(
+        title="Precision-Recall Curve",
+        xaxis_title="Recall",
+        yaxis_title="Precision",
+        xaxis=dict(range=[0,1]),
+        yaxis=dict(range=[0,1])
+    )
+    return fig

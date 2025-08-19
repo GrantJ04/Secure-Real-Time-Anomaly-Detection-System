@@ -2,10 +2,12 @@ import numpy as np
 import rfGen
 import autoencModel
 import visualizeResults as viz
+import dashboard as db
 from sklearn.model_selection import train_test_split
 from autoencModel import choose_threshold_by_f1
 from Crypto.Random import get_random_bytes
 from cryptoUtils import decryptData, encryptData
+
 import json
 
 # ------------------------------
@@ -154,9 +156,7 @@ print("Recall:", recall_score(allLabels, predLabels, zero_division=0))
 print("F1 Score:", f1_score(allLabels, predLabels, zero_division=0))
 
 # ------------------------------
-# 9) Visualize
+# 9) Visualize using Dash
 # ------------------------------
-viz.plotRecErrorDist(recErrors, threshold)
-viz.plotErrorOverTime(recErrors, allLabels, predAll, threshold)
-viz.plotConfusionMatrix(allLabels, predAll)
-viz.plotPrecisionRecallCurve(allLabels, recErrors)
+db.db(recErrors, threshold, allLabels, predAll, recErrors)
+
